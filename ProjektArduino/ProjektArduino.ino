@@ -8,11 +8,12 @@ const int MOTOR_PWM = 9;       // Pin PWM sterownika silnika
 
 // Stałe i zmienne
 const int STOP_DISTANCE = 5;   // Minimalna odległość w cm do aktywacji stopu
-const int FULL_ROTATION_TIME = 2000; // Czas pełnego obrotu (w ms)
+const int FULL_ROTATION_TIME = 5000; // Czas pełnego obrotu (w ms)
 const int SLOW_DOWN_TIME = 400;      // Czas na zwolnienie pod koniec obrotu (w ms)
 
 enum State { IDLE, ROTATING, SLOWING_DOWN, EMERGENCY_STOP };
 State currentState = IDLE;
+State previousState = IDLE;
 
 long duration;
 int distance;
@@ -52,6 +53,7 @@ void loop() {
     case ROTATING:
       if (distance <= STOP_DISTANCE) {
         // Awaryjne zatrzymanie
+        previousState = currentState;
         currentState = EMERGENCY_STOP;
         Serial.println("Awaryjny stop w trakcie obrotu!");
       } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME - SLOW_DOWN_TIME) {
@@ -66,6 +68,7 @@ void loop() {
     case SLOWING_DOWN:
       if (distance <= STOP_DISTANCE) {
         // Awaryjne zatrzymanie podczas zwalniania
+        previousState = currentState;
         currentState = EMERGENCY_STOP;
         Serial.println("Awaryjny stop podczas zwalniania!");
       } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME) {
@@ -81,13 +84,13 @@ void loop() {
       // Zatrzymanie i oczekiwanie na usunięcie przeszkody
       stopMotor();
       if (distance > STOP_DISTANCE) {
-        currentState = IDLE;
-        Serial.println("Przeszkoda usunięta. Oczekiwanie na ruch.");
+        currentState = previousState; // Powrót do poprzedniego stanu
+        Serial.println("Przeszkoda usunięta. Powrót do poprzedniego stanu.");
       }
       break;
   }
 
-  delay(50); // Minimalne opóźnienie dla stabilności
+  delay(50); // Minimalne opóżnienie dla stabilności
 }
 
 // Funkcja pomiaru odległości
