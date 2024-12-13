@@ -1,22 +1,22 @@
-
 // Definicje pinów
 const int PIR_PIN = 8;         // Pin czujnika PIR
-const int TRIG_PIN = 10;        // Pin Trig czujnika HC-SR04
-const int ECHO_PIN = 11;        // Pin Echo czujnika HC-SR04
+const int TRIG_PIN = 10;       // Pin Trig czujnika HC-SR04
+const int ECHO_PIN = 11;       // Pin Echo czujnika HC-SR04
 const int MOTOR_IN1 = 5;       // Pin IN1 sterownika L298N
 const int MOTOR_IN2 = 6;       // Pin IN2 sterownika L298N
 const int MOTOR_PWM = 9;       // Pin PWM sterownika silnika
 
 // Stałe i zmienne
-const int STOP_DISTANCE = 5;  // Minimalna odległość w cm do aktywacji stopu
-const int FULL_ROTATION_TIME = 5000; // Czas pełnego obrotu (w ms)
-const int SLOW_DOWN_TIME = 400; // Czas na zwolnienie pod koniec obrotu (w ms)
+const int STOP_DISTANCE = 5;   // Minimalna odległość w cm do aktywacji stopu
+const int FULL_ROTATION_TIME = 2000; // Czas pełnego obrotu (w ms)
+const int SLOW_DOWN_TIME = 400;      // Czas na zwolnienie pod koniec obrotu (w ms)
+
+enum State { IDLE, ROTATING, SLOWING_DOWN, EMERGENCY_STOP };
+State currentState = IDLE;
 
 long duration;
 int distance;
-bool isEmergencyStop = false;
 unsigned long rotationStartTime = 0;
-bool isRotating = false;
 
 void setup() {
   // Ustawienia pinów
@@ -32,34 +32,62 @@ void setup() {
 }
 
 void loop() {
-  // Sprawdzenie odległości
+  // Aktualizacja odległości
   distance = getDistance();
   int ruch = digitalRead(PIR_PIN);
- if (ruch == HIGH) {
-    // Wykryto ruch, sprawdzenie odległości
-    
-   if (ruch == HIGH) {
-    // Wykryto ruch, sprawdzenie odległości
-    if (distance <= STOP_DISTANCE) {
-      // Awaryjny stop
-      stopMotor();
-      Serial.println("Awaryjny stop! Osoba za blisko.");
-    } else {
-      // Aktywacja drzwi
-      if (!isRotating) {
-        isRotating = true;
+
+  switch (currentState) {
+    case IDLE:
+      if (ruch == HIGH && distance > STOP_DISTANCE) {
+        // Rozpoczęcie obrotu
+        currentState = ROTATING;
         rotationStartTime = millis();
+        Serial.println("Ruch wykryty, rozpoczęcie obrotu.");
+      } else if (distance <= STOP_DISTANCE) {
+        Serial.println("Osoba za blisko. Oczekiwanie.");
       }
-      controlMotor();
-      Serial.println("Ruch wykryty, obrót drzwi.");
-    }
-  } else {
-    // Brak ruchu, drzwi zatrzymane
-    stopMotor();
-    Serial.println("Brak ruchu. Drzwi zatrzymane.");
+      stopMotor();
+      break;
+
+    case ROTATING:
+      if (distance <= STOP_DISTANCE) {
+        // Awaryjne zatrzymanie
+        currentState = EMERGENCY_STOP;
+        Serial.println("Awaryjny stop w trakcie obrotu!");
+      } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME - SLOW_DOWN_TIME) {
+        // Przejście do fazy zwalniania
+        currentState = SLOWING_DOWN;
+        Serial.println("Zwalnianie obrotu.");
+      } else {
+        rotateMotor(255); // Pełna prędkość
+      }
+      break;
+
+    case SLOWING_DOWN:
+      if (distance <= STOP_DISTANCE) {
+        // Awaryjne zatrzymanie podczas zwalniania
+        currentState = EMERGENCY_STOP;
+        Serial.println("Awaryjny stop podczas zwalniania!");
+      } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME) {
+        // Zakończenie obrotu
+        currentState = IDLE;
+        Serial.println("Pełny obrót zakończony.");
+      } else {
+        rotateMotor(100); // Zmniejszona prędkość
+      }
+      break;
+
+    case EMERGENCY_STOP:
+      // Zatrzymanie i oczekiwanie na usunięcie przeszkody
+      stopMotor();
+      if (distance > STOP_DISTANCE) {
+        currentState = IDLE;
+        Serial.println("Przeszkoda usunięta. Oczekiwanie na ruch.");
+      }
+      break;
   }
- }
-  delay(100); // Minimalne opóźnienie dla stabilności
+
+  delay(50); // Minimalne opóźnienie dla stabilności
 }
 
 // Funkcja pomiaru odległości
@@ -75,26 +103,10 @@ int getDistance() {
 }
 
 // Funkcja obrotu silnika
-void controlMotor() {
-  unsigned long elapsedTime = millis() - rotationStartTime;
-
-  if (elapsedTime >= FULL_ROTATION_TIME) {
-    // Zakończenie obrotu
-    stopMotor();
-    isRotating = false;
-    Serial.println("Pełny obrót zakończony.");
-  } else if (elapsedTime >= FULL_ROTATION_TIME - SLOW_DOWN_TIME) {
-    // Zwalnianie pod koniec obrotu
-    analogWrite(MOTOR_PWM, 100); // Ustawienie niższej prędkości (wartość PWM 0-255)
-    digitalWrite(MOTOR_IN1, HIGH);
-    digitalWrite(MOTOR_IN2, LOW);
-    Serial.println("Zwalnianie...");
-  } else {
-    // Normalna prędkość
-    analogWrite(MOTOR_PWM, 255); // Maksymalna prędkość
-    digitalWrite(MOTOR_IN1, HIGH);
-    digitalWrite(MOTOR_IN2, LOW);
-  }
+void rotateMotor(int speed) {
+  analogWrite(MOTOR_PWM, speed);
+  digitalWrite(MOTOR_IN1, HIGH);
+  digitalWrite(MOTOR_IN2, LOW);
 }
 
 // Funkcja zatrzymania silnika
