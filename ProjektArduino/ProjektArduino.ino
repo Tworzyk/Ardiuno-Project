@@ -1,120 +1,39 @@
-// Definicje pinów
-const int PIR_PIN = 8;         // Pin czujnika PIR
-const int TRIG_PIN = 10;       // Pin Trig czujnika HC-SR04
-const int ECHO_PIN = 11;       // Pin Echo czujnika HC-SR04
-const int MOTOR_IN1 = 5;       // Pin IN1 sterownika L298N
-const int MOTOR_IN2 = 6;       // Pin IN2 sterownika L298N
-const int MOTOR_PWM = 9;       // Pin PWM sterownika silnika
+#include <HCSR04.h>
 
-// Stałe i zmienne
-const int STOP_DISTANCE = 5;   // Minimalna odległość w cm do aktywacji stopu
-const int FULL_ROTATION_TIME = 5000; // Czas pełnego obrotu (w ms)
-const int SLOW_DOWN_TIME = 400;      // Czas na zwolnienie pod koniec obrotu (w ms)
+#define PIR_PIN 8
+#define IN1 5
+#define IN2 6
 
-enum State { IDLE, ROTATING, SLOWING_DOWN, EMERGENCY_STOP };
-State currentState = IDLE;
-State previousState = IDLE;
 
-long duration;
-int distance;
-unsigned long rotationStartTime = 0;
+HCSR04 hc(10, 11);
 
 void setup() {
-  // Ustawienia pinów
-  pinMode(PIR_PIN, INPUT);
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-  pinMode(MOTOR_IN1, OUTPUT);
-  pinMode(MOTOR_IN2, OUTPUT);
-  pinMode(MOTOR_PWM, OUTPUT);
-
-  // Start komunikacji
   Serial.begin(9600);
+  pinMode(PIR_PIN, INPUT);  
+  pinMode(IN1, OUTPUT);      
+  pinMode(IN2, OUTPUT);      
+  digitalWrite(IN2, LOW);
 }
 
 void loop() {
-  // Aktualizacja odległości
-  distance = getDistance();
-  int ruch = digitalRead(PIR_PIN);
+  long distance = hc.dist();  
+  int ruch = digitalRead(PIR_PIN);  
 
-  switch (currentState) {
-    case IDLE:
-      if (ruch == HIGH && distance > STOP_DISTANCE) {
-        // Rozpoczęcie obrotu
-        currentState = ROTATING;
-        rotationStartTime = millis();
-        Serial.println("Ruch wykryty, rozpoczęcie obrotu.");
-      } else if (distance <= STOP_DISTANCE) {
-        Serial.println("Osoba za blisko. Oczekiwanie.");
-      }
-      stopMotor();
-      break;
 
-    case ROTATING:
-      if (distance <= STOP_DISTANCE) {
-        // Awaryjne zatrzymanie
-        previousState = currentState;
-        currentState = EMERGENCY_STOP;
-        Serial.println("Awaryjny stop w trakcie obrotu!");
-      } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME - SLOW_DOWN_TIME) {
-        // Przejście do fazy zwalniania
-        currentState = SLOWING_DOWN;
-        Serial.println("Zwalnianie obrotu.");
-      } else {
-        rotateMotor(255); // Pełna prędkość
-      }
-      break;
-
-    case SLOWING_DOWN:
-      if (distance <= STOP_DISTANCE) {
-        // Awaryjne zatrzymanie podczas zwalniania
-        previousState = currentState;
-        currentState = EMERGENCY_STOP;
-        Serial.println("Awaryjny stop podczas zwalniania!");
-      } else if (millis() - rotationStartTime >= FULL_ROTATION_TIME) {
-        // Zakończenie obrotu
-        currentState = IDLE;
-        Serial.println("Pełny obrót zakończony.");
-      } else {
-        rotateMotor(100); // Zmniejszona prędkość
-      }
-      break;
-
-    case EMERGENCY_STOP:
-      // Zatrzymanie i oczekiwanie na usunięcie przeszkody
-      stopMotor();
-      if (distance > STOP_DISTANCE) {
-        currentState = previousState; // Powrót do poprzedniego stanu
-        Serial.println("Przeszkoda usunięta. Powrót do poprzedniego stanu.");
-      }
-      break;
+  if (ruch == HIGH && distance > 20) {
+    digitalWrite(IN1, HIGH);  
+   
+    Serial.println("Drzwi obracają się...");
+  }
+  else {
+    digitalWrite(IN1, LOW);   
+    Serial.println("Drzwi zatrzymane...");
   }
 
-  delay(50); // Minimalne opóżnienie dla stabilności
-}
 
-// Funkcja pomiaru odległości
-int getDistance() {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+  Serial.print("Odległość: ");
+  Serial.print(distance);
+  Serial.println(" cm");
 
-  duration = pulseIn(ECHO_PIN, HIGH);
-  return duration * 0.034 / 2; // Odległość w cm
-}
-
-// Funkcja obrotu silnika
-void rotateMotor(int speed) {
-  analogWrite(MOTOR_PWM, speed);
-  digitalWrite(MOTOR_IN1, HIGH);
-  digitalWrite(MOTOR_IN2, LOW);
-}
-
-// Funkcja zatrzymania silnika
-void stopMotor() {
-  digitalWrite(MOTOR_IN1, LOW);
-  digitalWrite(MOTOR_IN2, LOW);
-  analogWrite(MOTOR_PWM, 0);
+  delay(100);  
 }
